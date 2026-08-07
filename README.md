@@ -22,7 +22,7 @@ Real-time Formula 1 telemetry processing, stream alignment, and interactive web 
 
 ```bash
 # Step 1: Clone the repo
-git clone [https://github.com/ishikarkhokhani/F1-Race-Replay.git](https://github.com/ishikarkhokhani/F1-Race-Replay.git)
+git clone https://github.com/ishikarkhokhani/F1-Race-Replay.git
 cd F1-Race-Replay
 
 # Step 2: Install the Python dependencies
