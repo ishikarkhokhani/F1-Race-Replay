@@ -13,7 +13,6 @@ class TelemetryProcessor:
             if df.empty:
                 continue
             
-            # Resample telemetry to uniform 100ms time steps
             df = df.copy()
             df['SessionTime'] = pd.to_timedelta(df['SessionTime'])
             df = df.set_index('SessionTime').resample(f'{freq_ms}ms').first().ffill().reset_index()
