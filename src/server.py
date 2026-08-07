@@ -1,62 +1,53 @@
 import asyncio
 import json
 import websockets
-import pandas as pd
 
-class TelemetryStreamServer:
-    def __init__(self, processed_df: pd.DataFrame, circuit_layout: list, host: str = "0.0.0.0", port: int = 8765):
-        self.df = processed_df.fillna(0)
-        self.circuit_layout = circuit_layout
+class TelemetryServer:
+    def __init__(self, host="127.0.0.1", port=8765):
         self.host = host
         self.port = port
-        self.connected_clients = set()
+        self.clients = set()
+        self.on_circuit_change = None
+
+    def register_circuit_change_handler(self, handler):
+        self.on_circuit_change = handler
 
     async def register(self, websocket):
-        self.connected_clients.add(websocket)
+        self.clients.add(websocket)
         print(f"[WS] Client connected: {websocket.remote_address}")
-        
-        # Send track layout payload immediately upon connection
-        init_payload = json.dumps({
-            "type": "layout",
-            "circuit": self.circuit_layout
-        }, default=str)
-        await websocket.send(init_payload)
 
     async def unregister(self, websocket):
-        if websocket in self.connected_clients:
-            self.connected_clients.remove(websocket)
-            print(f"[WS] Client disconnected: {websocket.remote_address}")
+        self.clients.remove(websocket)
+        print(f"[WS] Client disconnected: {websocket.remote_address}")
 
-    async def ws_handler(self, websocket):
+    async def handler(self, websocket):
         await self.register(websocket)
         try:
             async for message in websocket:
-                pass
-        except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError):
+                try:
+                    data = json.loads(message)
+                    if data.get("type") == "select_session" and self.on_circuit_change:
+                        gp = data.get("gp")
+                        year = data.get("year", 2023)
+                        print(f"[WS] Received request to switch to GP: {gp} ({year})")
+                        await self.on_circuit_change(year, gp)
+                except Exception as e:
+                    print(f"[WS] Error handling message: {e}")
+        except websockets.exceptions.ConnectionClosedError:
             pass
         finally:
             await self.unregister(websocket)
 
-    async def stream_telemetry(self):
-        """Streams telemetry frames repeatedly to connected clients."""
-        print("🏎️ Telemetry engine ready and waiting for WebSocket clients...")
-        grouped = list(self.df.groupby('SessionTime'))
+    async def broadcast(self, message: dict):
+        if not self.clients:
+            return
+        payload = json.dumps(message)
+        await asyncio.gather(
+            *[client.send(payload) for client in self.clients],
+            return_exceptions=True
+        )
 
-        while True:
-            if not self.connected_clients:
-                await asyncio.sleep(0.5)
-                continue
-
-            for timestamp, frame in grouped:
-                if not self.connected_clients:
-                    break
-
-                records = frame.to_dict(orient='records')
-                payload = json.dumps({
-                    "type": "telemetry",
-                    "data": records
-                }, default=str)
-
-                # Send payload to all active clients
-                websockets.broadcast(self.connected_clients, payload)
-                await asyncio.sleep(0.1)
+    async def start(self):
+        async with websockets.serve(self.handler, self.host, self.port):
+            print(f"📡 WebSocket server listening on ws://{self.host}:{self.port}")
+            await asyncio.Future()

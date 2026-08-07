@@ -1,53 +1,70 @@
-import sys
-import os
-import asyncio
 import argparse
-import logging
-
-sys.path.insert(0, os.getcwd())
-
-from src.ingester import F1DataIngester
+import asyncio
+import pandas as pd
+from src.ingester import FastF1Ingester
 from src.processor import TelemetryProcessor
-from src.server import TelemetryStreamServer
-import websockets
+from src.server import TelemetryServer
 
-async def run_engine(args):
-    print(f"🏎️ Initializing F1 Race Replay for {args.year} {args.gp}...")
-    ingester = F1DataIngester()
-    session = ingester.load_session(args.year, args.gp)
+server = TelemetryServer()
+current_stream_task = None
 
-    circuit_layout = ingester.get_circuit_layout(session)
+async def stream_telemetry_loop(aligned_df):
+    grouped = aligned_df.groupby('SessionTime')
+    for _, frame in grouped:
+        frame_data = frame.to_dict(orient='records')
+        for row in frame_data:
+            for k, v in list(row.items()):
+                if isinstance(v, (pd.Timestamp, pd.Timedelta)):
+                    row[k] = str(v)
+                elif pd.isna(v):
+                    row[k] = None
 
-    telemetry_data = {}
-    for driver in args.drivers:
-        print(f"Loading telemetry for {driver}...")
-        telemetry_data[driver] = ingester.extract_driver_telemetry(session, driver)
+        await server.broadcast({"type": "telemetry", "data": frame_data})
+        await asyncio.sleep(0.1)
 
-    print("Aligning multi-driver telemetry streams...")
-    processed_stream = TelemetryProcessor.align_multi_driver_telemetry(telemetry_data)
-    print(f"✅ Ingestion complete. Total aligned samples: {len(processed_stream)}")
-
-    # Silence noisy handshake failure logs from React strict mode / HMR reconnects
-    logging.getLogger("websockets.server").setLevel(logging.ERROR)
-    logging.getLogger("websockets.protocol").setLevel(logging.ERROR)
-
-    server = TelemetryStreamServer(processed_stream, circuit_layout, host="0.0.0.0", port=8765)
+async def load_and_stream_session(year: int, gp: str, drivers: list):
+    global current_stream_task
     
-    # Start single clean WebSocket server
-    async with websockets.serve(server.ws_handler, server.host, server.port):
-        print(f"📡 WebSocket server listening on ws://127.0.0.1:{server.port}")
-        # Run broadcasting loop concurrently without blocking new incoming connections
-        asyncio.create_task(server.stream_telemetry())
-        await asyncio.Future()  # Keep server running continuously
+    if current_stream_task and not current_stream_task.done():
+        current_stream_task.cancel()
+        try:
+            await current_stream_task
+        except asyncio.CancelledError:
+            pass
 
-def main():
-    parser = argparse.ArgumentParser(description="F1 Telemetry Processing & Streaming Engine")
-    parser.add_argument("--year", type=int, default=2023, help="Season year")
-    parser.add_argument("--gp", type=str, default="Monza", help="Grand Prix name")
-    parser.add_argument("--drivers", nargs="+", default=["VER", "LEC", "HAM"], help="Driver codes")
+    ingester = FastF1Ingester(year=year, gp=gp, session_type='R')
+    ingester.load_session()
+
+    layout = ingester.get_circuit_layout()
     
+    telemetry_dict = {}
+    for driver in drivers:
+        telemetry_dict[driver] = ingester.get_driver_telemetry(driver)
+        
+    aligned_df = TelemetryProcessor.align_multi_driver_telemetry(telemetry_dict)
+    
+    if aligned_df.empty:
+        return
+
+    await server.broadcast({"type": "layout", "circuit": layout, "circuitName": f"{gp} GP"})
+
+    current_stream_task = asyncio.create_task(stream_telemetry_loop(aligned_df))
+
+async def handle_circuit_change(year: int, gp: str):
+    drivers = ["VER", "LEC", "HAM"]
+    await load_and_stream_session(year, gp, drivers)
+
+async def main():
+    parser = argparse.ArgumentParser(description="F1 Telemetry WebSocket Server")
+    parser.add_argument("--year", type=int, default=2023)
+    parser.add_argument("--gp", type=str, default="Monza")
+    parser.add_argument("--drivers", nargs="+", default=["VER", "LEC", "HAM"])
     args = parser.parse_args()
-    asyncio.run(run_engine(args))
+
+    server.register_circuit_change_handler(handle_circuit_change)
+
+    asyncio.create_task(load_and_stream_session(args.year, args.gp, args.drivers))
+    await server.start()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

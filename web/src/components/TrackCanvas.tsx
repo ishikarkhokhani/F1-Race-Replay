@@ -1,123 +1,146 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
-
-interface Point {
-  X: number;
-  Y: number;
-}
-
-interface DriverFrame {
-  Driver: string;
-  X: number;
-  Y: number;
-  Speed: number;
-  nGear: number;
-  Throttle: number;
-}
+import React, { useRef, useEffect, useMemo } from "react";
 
 interface TrackCanvasProps {
-  circuitLayout: Point[];
-  telemetryFrame: DriverFrame[];
-  circuitName: string;
+  circuitLayout: { X: number; Y: number }[];
+  telemetryFrame: any[];
+  circuitName?: string;
 }
 
 const DRIVER_COLORS: Record<string, string> = {
-  VER: "#1e41ff", // Red Bull Blue
-  LEC: "#dc0000", // Ferrari Red
-  HAM: "#00d2be", // Mercedes Turquoise
-  NOR: "#ff8700", // McLaren Papaya
+  VER: "#3671C6",
+  PER: "#3671C6",
+  LEC: "#F91536",
+  SAI: "#F91536",
+  HAM: "#6CD3BF",
+  RUS: "#6CD3BF",
+  NOR: "#FF8000",
+  PIA: "#FF8000",
+  ALO: "#229971",
+  STR: "#229971",
 };
 
 export const TrackCanvas: React.FC<TrackCanvasProps> = ({
-  circuitLayout,
-  telemetryFrame,
-  circuitName,
+  circuitLayout = [],
+  telemetryFrame = [],
+  circuitName = "Monza GP",
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const bounds = useMemo(() => {
+    if (!circuitLayout.length) return null;
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+    circuitLayout.forEach((pt) => {
+      const x = Number(pt.X);
+      const y = Number(pt.Y);
+      if (!isNaN(x) && !isNaN(y)) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    });
+
+    if (minX === Infinity || maxX === -Infinity) return null;
+
+    return { minX, maxX, minY, maxY };
+  }, [circuitLayout]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx || !bounds) return;
 
-    // Clear background
-    ctx.fillStyle = "#0d0d11";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (!circuitLayout || circuitLayout.length === 0) return;
+    const padding = 60;
+    const availWidth = canvas.width - padding * 2;
+    const availHeight = canvas.height - padding * 2;
 
-    // 1. Calculate global track scale from static circuit bounds
-    const xs = circuitLayout.map((p) => p.X);
-    const ys = circuitLayout.map((p) => p.Y);
-    const minX = Math.min(...xs) - 1500;
-    const maxX = Math.max(...xs) + 1500;
-    const minY = Math.min(...ys) - 1500;
-    const maxY = Math.max(...ys) + 1500;
+    const mapWidth = bounds.maxX - bounds.minX || 1;
+    const mapHeight = bounds.maxY - bounds.minY || 1;
 
-    const scaleX = (x: number) =>
-      ((x - minX) / (maxX - minX)) * (canvas.width - 80) + 40;
-    const scaleY = (y: number) =>
-      canvas.height -
-      (((y - minY) / (maxY - minY)) * (canvas.height - 80) + 40);
+    const scale = Math.min(availWidth / mapWidth, availHeight / mapHeight);
 
-    // 2. Draw Circuit Track Outline
-    ctx.beginPath();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = "#27272a"; // Zinc-800 line
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+    const offsetX = padding + (availWidth - mapWidth * scale) / 2;
+    const offsetY = padding + (availHeight - mapHeight * scale) / 2;
 
-    circuitLayout.forEach((point, i) => {
-      const cx = scaleX(point.X);
-      const cy = scaleY(point.Y);
-      if (i === 0) {
-        ctx.moveTo(cx, cy);
-      } else {
-        ctx.lineTo(cx, cy);
-      }
-    });
-    ctx.closePath();
-    ctx.stroke();
+    const toCanvasX = (x: number) => offsetX + (x - bounds.minX) * scale;
+    const toCanvasY = (y: number) => canvas.height - (offsetY + (y - bounds.minY) * scale);
 
-    // 3. Draw Driver Positions
-    if (telemetryFrame && telemetryFrame.length > 0) {
-      telemetryFrame.forEach((driver) => {
-        const cx = scaleX(driver.X);
-        const cy = scaleY(driver.Y);
+    if (circuitLayout.length > 0) {
+      ctx.beginPath();
+      ctx.strokeStyle = "#3f3f46";
+      ctx.lineWidth = 4;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
 
-        // Driver dot
+      let started = false;
+      circuitLayout.forEach((pt) => {
+        const x = Number(pt.X);
+        const y = Number(pt.Y);
+        if (!isNaN(x) && !isNaN(y)) {
+          const cx = toCanvasX(x);
+          const cy = toCanvasY(y);
+          if (!started) {
+            ctx.moveTo(cx, cy);
+            started = true;
+          } else {
+            ctx.lineTo(cx, cy);
+          }
+        }
+      });
+      ctx.closePath();
+      ctx.stroke();
+    }
+
+    telemetryFrame.forEach((driver) => {
+      const x = Number(driver.X);
+      const y = Number(driver.Y);
+
+      if (!isNaN(x) && !isNaN(y)) {
+        const cx = toCanvasX(x);
+        const cy = toCanvasY(y);
+
+        const color = DRIVER_COLORS[driver.Driver] || "#a855f7";
+
         ctx.beginPath();
-        ctx.arc(cx, cy, 7, 0, 2 * Math.PI);
-        ctx.fillStyle = DRIVER_COLORS[driver.Driver] || "#a1a1aa";
+        ctx.arc(cx, cy, 8, 0, 2 * Math.PI);
+        ctx.fillStyle = color;
         ctx.fill();
-        ctx.lineWidth = 2;
         ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Driver label
-        ctx.font = "bold 11px monospace";
+        ctx.font = "bold 10px monospace";
         ctx.fillStyle = "#ffffff";
-        ctx.fillText(driver.Driver, cx + 10, cy + 4);
-      });
-    }
-  }, [circuitLayout, telemetryFrame]);
+        ctx.textAlign = "center";
+        ctx.fillText(driver.Driver || "", cx, cy - 12);
+      }
+    });
+  }, [circuitLayout, telemetryFrame, bounds]);
 
   return (
-    <div className="relative bg-zinc-950 border border-zinc-800 rounded-xl p-4 shadow-2xl">
-      <div className="flex justify-between items-center mb-4 font-mono text-xs text-zinc-400">
-        <span>CIRCUIT: {circuitName.toUpperCase()}</span>
-        <span className="text-emerald-400 flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          LIVE REPLAY
+    <div className="relative bg-[#121215] border border-zinc-800 rounded-xl p-4 overflow-hidden">
+      <div className="absolute top-4 left-4 flex items-center gap-2">
+        <span className="text-xs font-mono text-zinc-400 uppercase tracking-widest">
+          CIRCUIT: {circuitName}
         </span>
       </div>
+      <div className="absolute top-4 right-4 flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span className="text-[10px] font-mono text-zinc-400">LIVE REPLAY</span>
+      </div>
+
       <canvas
         ref={canvasRef}
         width={700}
-        height={500}
-        className="w-full h-auto bg-[#0d0d11] rounded-lg border border-zinc-900"
+        height={420}
+        className="w-full h-[420px] object-contain"
       />
     </div>
   );

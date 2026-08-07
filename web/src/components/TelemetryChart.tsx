@@ -31,7 +31,6 @@ const DRIVER_COLORS: Record<string, string> = {
 export const TelemetryChart: React.FC<TelemetryChartProps> = ({
   telemetryHistory,
 }) => {
-  // Format history data into recharts-compatible objects
   const chartData = telemetryHistory.map((frame, index) => {
     const entry: Record<string, any> = { frameIndex: index };
     frame.forEach((driver: DriverFrame) => {
@@ -40,7 +39,6 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
     return entry;
   });
 
-  // Extract unique driver keys dynamically
   const drivers = Array.from(
     new Set(
       telemetryHistory.flatMap((frame) =>

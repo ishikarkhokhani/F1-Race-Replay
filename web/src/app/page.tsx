@@ -4,8 +4,18 @@ import React, { useState, useEffect, useRef } from "react";
 import { TrackCanvas } from "@/components/TrackCanvas";
 import { TelemetryChart } from "@/components/TelemetryChart";
 
+const AVAILABLE_CIRCUITS = [
+  { id: "Monza", name: "Monza (Italy)" },
+  { id: "Silverstone", name: "Silverstone (UK)" },
+  { id: "Spa", name: "Spa-Francorchamps (Belgium)" },
+  { id: "Monaco", name: "Monaco" },
+  { id: "Red Bull Ring", name: "Red Bull Ring (Austria)" },
+];
+
 export default function Home() {
   const [circuitLayout, setCircuitLayout] = useState<any[]>([]);
+  const [circuitName, setCircuitName] = useState<string>("Monza GP");
+  const [selectedGP, setSelectedGP] = useState<string>("Monza");
   const [telemetryBuffer, setTelemetryBuffer] = useState<any[][]>([]);
   const [currentFrameIndex, setCurrentFrameIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
@@ -15,6 +25,7 @@ export default function Home() {
   const isPlayingRef = useRef(isPlaying);
   const speedRef = useRef(speedMultiplier);
   const bufferLengthRef = useRef(0);
+  const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
@@ -34,6 +45,7 @@ export default function Home() {
 
     const socketUrl = "ws://127.0.0.1:8765";
     const ws = new WebSocket(socketUrl);
+    socketRef.current = ws;
 
     ws.onopen = () => setIsConnected(true);
     ws.onclose = () => setIsConnected(false);
@@ -44,6 +56,9 @@ export default function Home() {
         const message = JSON.parse(event.data);
         if (message.type === "layout") {
           setCircuitLayout(message.circuit);
+          if (message.circuitName) {
+            setCircuitName(message.circuitName);
+          }
         } else if (message.type === "telemetry") {
           setTelemetryBuffer((prev) => [...prev, message.data]);
         }
@@ -84,7 +99,24 @@ export default function Home() {
       : strTime.slice(0, 10);
   };
 
-  // Sort drivers by cumulative Distance or relative X,Y positioning
+  // Switch circuit handler via WebSocket
+  const handleCircuitSelect = (gp: string) => {
+    setSelectedGP(gp);
+    setTelemetryBuffer([]);
+    setCurrentFrameIndex(0);
+
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: "select_session",
+          year: 2023,
+          gp: gp,
+        })
+      );
+    }
+  };
+
+  // Sort drivers by cumulative Distance or spatial coordinates
   const sortedDrivers = [...currentFrame].sort((a, b) => {
     if (a.Distance !== undefined && b.Distance !== undefined) {
       return b.Distance - a.Distance;
@@ -98,24 +130,21 @@ export default function Home() {
   const getDriverDelta = (driver: any, idx: number) => {
     if (idx === 0 || !leader) return "LEADER";
 
-    // 1. Primary: Use FastF1 Distance column if present
     if (
       driver.Distance !== undefined &&
       leader.Distance !== undefined &&
       leader.Distance !== driver.Distance
     ) {
       const deltaMeters = Math.max(0, leader.Distance - driver.Distance);
-      const speedMs = (driver.Speed || 250) / 3.6; // Convert km/h to m/s
+      const speedMs = (driver.Speed || 250) / 3.6;
       const gapSeconds = speedMs > 0 ? deltaMeters / speedMs : 0;
       return `+${gapSeconds.toFixed(3)}s`;
     }
 
-    // 2. Fallback: Use spatial track coordinate delta
     const dx = (leader.X || 0) - (driver.X || 0);
     const dy = (leader.Y || 0) - (driver.Y || 0);
     const spatialDistance = Math.sqrt(dx * dx + dy * dy);
 
-    // FastF1 telemetry coordinates are in decimeters (0.1m)
     const distanceInMeters = spatialDistance / 10;
     const speedMs = (driver.Speed || 250) / 3.6;
     const gapSeconds = speedMs > 0 ? distanceInMeters / speedMs : 0;
@@ -135,13 +164,31 @@ export default function Home() {
             Real-time WebSocket Replay • FastF1 Engine
           </p>
         </div>
-        <div className="text-xs flex items-center gap-4">
+
+        <div className="flex items-center gap-4 text-xs">
+          {/* Circuit Selector Dropdown */}
+          <div className="flex items-center gap-2">
+            <label className="text-zinc-400">CIRCUIT:</label>
+            <select
+              value={selectedGP}
+              onChange={(e) => handleCircuitSelect(e.target.value)}
+              className="bg-zinc-900 border border-zinc-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-purple-500 font-mono text-xs cursor-pointer"
+            >
+              {AVAILABLE_CIRCUITS.map((circuit) => (
+                <option key={circuit.id} value={circuit.id}>
+                  {circuit.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <span className="text-zinc-400 font-mono">
             SESSION TIME:{" "}
             <span className="text-zinc-200">
               {formatSessionTime(currentFrame[0]?.SessionTime)}
             </span>
           </span>
+
           <span
             className={`px-3 py-1 rounded-full border font-mono ${
               isConnected
@@ -161,7 +208,7 @@ export default function Home() {
           <TrackCanvas
             circuitLayout={circuitLayout}
             telemetryFrame={currentFrame}
-            circuitName="Monza GP"
+            circuitName={circuitName}
           />
 
           {/* Interactive Timeline Scrubber & Controls */}
@@ -175,7 +222,7 @@ export default function Home() {
                 max={Math.max(0, telemetryBuffer.length - 1)}
                 value={currentFrameIndex}
                 onChange={(e) => {
-                  setIsPlaying(false); // Pause stream when manually scrubbing
+                  setIsPlaying(false);
                   setCurrentFrameIndex(Number(e.target.value));
                 }}
                 className="w-full accent-purple-500 bg-zinc-800 h-1.5 rounded-lg cursor-pointer"

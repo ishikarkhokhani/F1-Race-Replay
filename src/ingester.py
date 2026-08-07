@@ -1,27 +1,33 @@
-import os
 import fastf1
 import pandas as pd
 
-class F1DataIngester:
-    def __init__(self, cache_dir: str = "./data/cache"):
-        os.makedirs(cache_dir, exist_ok=True)
-        fastf1.Cache.enable_cache(cache_dir)
+class FastF1Ingester:
+    def __init__(self, year: int = 2023, gp: str = "Monza", session_type: str = "R"):
+        self.year = year
+        self.gp = gp
+        self.session_type = session_type
+        self.session = None
 
-    def load_session(self, year: int, grand_prix: str, session_type: str = 'R'):
-        """Loads session data (e.g., year=2023, grand_prix='Monza', session_type='R')"""
-        session = fastf1.get_session(year, grand_prix, session_type)
-        session.load(telemetry=True, laps=True, weather=False)
-        return session
+    def load_session(self):
+        fastf1.Cache.enable_cache("data")
+        self.session = fastf1.get_session(self.year, self.gp, self.session_type)
+        self.session.load()
 
-    def extract_driver_telemetry(self, session, driver_code: str):
-        """Extracts telemetry telemetry data for a specific driver."""
-        laps = session.laps.pick_driver(driver_code)
+    def get_circuit_layout(self):
+        if not self.session:
+            self.load_session()
+        lap = self.session.laps.pick_fastest()
+        pos = lap.get_pos_data()
+        pos = pos.dropna(subset=['X', 'Y'])
+        return pos[['X', 'Y', 'Z']].to_dict(orient='records')
+
+    def get_driver_telemetry(self, driver_code: str):
+        if not self.session:
+            self.load_session()
+        laps = self.session.laps.pick_drivers(driver_code)
+        if laps.empty:
+            return pd.DataFrame()
         telemetry = laps.get_telemetry()
-        return telemetry[['Date', 'SessionTime', 'Speed', 'RPM', 'nGear', 'Throttle', 'Brake', 'DRS', 'X', 'Y', 'Z']]
-
-    def get_circuit_layout(self, session):
-        """Extracts reference circuit layout coordinates (X, Y) from the fastest lap of the session."""
-        fastest_lap = session.laps.pick_fastest()
-        telemetry = fastest_lap.get_telemetry()
-        circuit = telemetry[['X', 'Y']].dropna()
-        return circuit.to_dict(orient='records')
+        if not telemetry.empty and 'X' in telemetry.columns and 'Y' in telemetry.columns:
+            telemetry = telemetry.dropna(subset=['X', 'Y'])
+        return telemetry
