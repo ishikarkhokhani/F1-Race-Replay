@@ -1,38 +1,47 @@
 import asyncio
 import json
 import websockets
+import pandas as pd
 
 class TelemetryStreamServer:
-    def __init__(self, host: str = "localhost", port: int = 8765):
+    def __init__(self, processed_df: pd.DataFrame, host: str = "localhost", port: int = 8765):
+        self.df = processed_df
         self.host = host
         self.port = port
         self.connected_clients = set()
 
     async def register(self, websocket):
         self.connected_clients.add(websocket)
-        print(f"Client connected: {websocket.remote_address}")
+        print(f"[WS] Client connected: {websocket.remote_address}")
 
     async def unregister(self, websocket):
-        self.connected_clients.remove(websocket)
-        print(f"Client disconnected: {websocket.remote_address}")
+        if websocket in self.connected_clients:
+            self.connected_clients.remove(websocket)
+            print(f"[WS] Client disconnected: {websocket.remote_address}")
 
-    async def handler(self, websocket, path):
+    async def ws_handler(self, websocket):
         await self.register(websocket)
         try:
             async for message in websocket:
-                pass  # Keep connection open for push broadcast
+                pass
+        except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError):
+            pass
         finally:
             await self.unregister(websocket)
 
-    async def broadcast_frame(self, frame_data: dict):
-        if self.connected_clients:
-            message = json.dumps(frame_data)
-            await asyncio.gather(
-                *[client.send(message) for client in self.connected_clients],
-                return_exceptions=True
-            )
+    async def stream_telemetry(self):
+        """Groups telemetry by SessionTime and broadcasts each frame to connected clients."""
+        print("🏎️ Starting live telemetry stream broadcast...")
+        grouped = self.df.groupby('SessionTime')
 
-    def start(self):
-        server = websockets.serve(self.handler, self.host, self.port)
-        print(f"WebSocket Telemetry Streamer running on ws://{self.host}:{self.port}")
-        return server
+        for timestamp, frame in grouped:
+            if not self.connected_clients:
+                await asyncio.sleep(0.1)
+                continue
+
+            records = frame.to_dict(orient='records')
+            payload = json.dumps(records, default=str)
+
+            # Safely send payload to all connected clients
+            websockets.broadcast(self.connected_clients, payload)
+            await asyncio.sleep(0.1)
