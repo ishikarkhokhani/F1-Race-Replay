@@ -2,6 +2,11 @@
 
 import React, { useRef, useEffect } from "react";
 
+interface Point {
+  X: number;
+  Y: number;
+}
+
 interface DriverFrame {
   Driver: string;
   X: number;
@@ -12,6 +17,7 @@ interface DriverFrame {
 }
 
 interface TrackCanvasProps {
+  circuitLayout: Point[];
   telemetryFrame: DriverFrame[];
   circuitName: string;
 }
@@ -23,7 +29,11 @@ const DRIVER_COLORS: Record<string, string> = {
   NOR: "#ff8700", // McLaren Papaya
 };
 
-export const TrackCanvas: React.FC<TrackCanvasProps> = ({ telemetryFrame, circuitName }) => {
+export const TrackCanvas: React.FC<TrackCanvasProps> = ({
+  circuitLayout,
+  telemetryFrame,
+  circuitName,
+}) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -32,35 +42,67 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({ telemetryFrame, circui
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Clear canvas frame
-    ctx.fillStyle = "#0a0a0a";
+    // Clear background
+    ctx.fillStyle = "#0d0d11";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    if (!telemetryFrame || telemetryFrame.length === 0) return;
+    if (!circuitLayout || circuitLayout.length === 0) return;
 
-    // Normalize coordinates to canvas scale (assuming FastF1 X, Y bounds)
-    const minX = -10000, maxX = 10000;
-    const minY = -10000, maxY = 10000;
+    // 1. Calculate global track scale from static circuit bounds
+    const xs = circuitLayout.map((p) => p.X);
+    const ys = circuitLayout.map((p) => p.Y);
+    const minX = Math.min(...xs) - 1500;
+    const maxX = Math.max(...xs) + 1500;
+    const minY = Math.min(...ys) - 1500;
+    const maxY = Math.max(...ys) + 1500;
 
-    telemetryFrame.forEach((driver) => {
-      const cx = ((driver.X - minX) / (maxX - minX)) * canvas.width;
-      const cy = canvas.height - ((driver.Y - minY) / (maxY - minY)) * canvas.height;
+    const scaleX = (x: number) =>
+      ((x - minX) / (maxX - minX)) * (canvas.width - 80) + 40;
+    const scaleY = (y: number) =>
+      canvas.height -
+      (((y - minY) / (maxY - minY)) * (canvas.height - 80) + 40);
 
-      // Draw driver dot
-      ctx.beginPath();
-      ctx.arc(cx, cy, 8, 0, 2 * Math.PI);
-      ctx.fillStyle = DRIVER_COLORS[driver.Driver] || "#a1a1aa";
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "#ffffff";
-      ctx.stroke();
+    // 2. Draw Circuit Track Outline
+    ctx.beginPath();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#27272a"; // Zinc-800 line
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
-      // Render Driver Code label
-      ctx.font = "bold 12px monospace";
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(driver.Driver, cx + 12, cy + 4);
+    circuitLayout.forEach((point, i) => {
+      const cx = scaleX(point.X);
+      const cy = scaleY(point.Y);
+      if (i === 0) {
+        ctx.moveTo(cx, cy);
+      } else {
+        ctx.lineTo(cx, cy);
+      }
     });
-  }, [telemetryFrame]);
+    ctx.closePath();
+    ctx.stroke();
+
+    // 3. Draw Driver Positions
+    if (telemetryFrame && telemetryFrame.length > 0) {
+      telemetryFrame.forEach((driver) => {
+        const cx = scaleX(driver.X);
+        const cy = scaleY(driver.Y);
+
+        // Driver dot
+        ctx.beginPath();
+        ctx.arc(cx, cy, 7, 0, 2 * Math.PI);
+        ctx.fillStyle = DRIVER_COLORS[driver.Driver] || "#a1a1aa";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#ffffff";
+        ctx.stroke();
+
+        // Driver label
+        ctx.font = "bold 11px monospace";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(driver.Driver, cx + 10, cy + 4);
+      });
+    }
+  }, [circuitLayout, telemetryFrame]);
 
   return (
     <div className="relative bg-zinc-950 border border-zinc-800 rounded-xl p-4 shadow-2xl">

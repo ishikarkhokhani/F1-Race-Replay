@@ -4,24 +4,49 @@ import React, { useState, useEffect } from "react";
 import { TrackCanvas } from "@/components/TrackCanvas";
 
 export default function Home() {
+  const [circuitLayout, setCircuitLayout] = useState<any[]>([]);
   const [telemetry, setTelemetry] = useState<any[]>([]);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:8765");
-
-    ws.onopen = () => setIsConnected(true);
-    ws.onclose = () => setIsConnected(false);
+    // Prevent SSR/hydration execution
+    if (typeof window === "undefined") return;
+  
+    const socketUrl = "ws://127.0.0.1:8765";
+    console.log(`[WS] Attempting connection to ${socketUrl}...`);
+    
+    const ws = new WebSocket(socketUrl);
+  
+    ws.onopen = () => {
+      console.log("[WS] Connected to telemetry server!");
+      setIsConnected(true);
+    };
+  
+    ws.onclose = (event) => {
+      console.log(`[WS] Disconnected (Code: ${event.code}, Reason: ${event.reason || "None"})`);
+      setIsConnected(false);
+    };
+  
+    ws.onerror = (event) => {
+      console.error("[WS] Connection failed to ws://127.0.0.1:8765. Verify Python server is running.");
+    };
+  
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        setTelemetry(data);
+        const message = JSON.parse(event.data);
+        if (message.type === "layout") {
+          setCircuitLayout(message.circuit);
+        } else if (message.type === "telemetry") {
+          setTelemetry(message.data);
+        }
       } catch (e) {
-        console.error("Invalid frame payload", e);
+        console.error("Invalid WS payload", e);
       }
     };
-
-    return () => ws.close();
+  
+    return () => {
+      ws.close();
+    };
   }, []);
 
   return (
@@ -45,14 +70,20 @@ export default function Home() {
         </div>
       </header>
 
+      {/* Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Track Canvas (2 cols) */}
         <div className="lg:col-span-2">
-          <TrackCanvas telemetryFrame={telemetry} circuitName="Monza GP" />
+          <TrackCanvas
+            circuitLayout={circuitLayout}
+            telemetryFrame={telemetry}
+            circuitName="Monza GP"
+          />
         </div>
 
+        {/* Telemetry HUD (1 col) */}
         <div className="bg-[#121215] border border-zinc-800 rounded-xl p-6 font-mono text-xs">
-          <h2 className="text-zinc-400 uppercase tracking-wider mb-4">// Telemetry Telemetry Feed</h2>
+          <h2 className="text-zinc-400 uppercase tracking-wider mb-4">// Telemetry Feed</h2>
           
           <div className="space-y-4">
             {telemetry.map((driver: any) => (

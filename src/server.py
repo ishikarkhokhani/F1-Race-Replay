@@ -4,8 +4,9 @@ import websockets
 import pandas as pd
 
 class TelemetryStreamServer:
-    def __init__(self, processed_df: pd.DataFrame, host: str = "localhost", port: int = 8765):
-        self.df = processed_df
+    def __init__(self, processed_df: pd.DataFrame, circuit_layout: list, host: str = "0.0.0.0", port: int = 8765):
+        self.df = processed_df.fillna(0)
+        self.circuit_layout = circuit_layout
         self.host = host
         self.port = port
         self.connected_clients = set()
@@ -13,6 +14,13 @@ class TelemetryStreamServer:
     async def register(self, websocket):
         self.connected_clients.add(websocket)
         print(f"[WS] Client connected: {websocket.remote_address}")
+        
+        # Send track layout payload immediately upon connection
+        init_payload = json.dumps({
+            "type": "layout",
+            "circuit": self.circuit_layout
+        }, default=str)
+        await websocket.send(init_payload)
 
     async def unregister(self, websocket):
         if websocket in self.connected_clients:
@@ -30,18 +38,25 @@ class TelemetryStreamServer:
             await self.unregister(websocket)
 
     async def stream_telemetry(self):
-        """Groups telemetry by SessionTime and broadcasts each frame to connected clients."""
-        print("🏎️ Starting live telemetry stream broadcast...")
-        grouped = self.df.groupby('SessionTime')
+        """Streams telemetry frames repeatedly to connected clients."""
+        print("🏎️ Telemetry engine ready and waiting for WebSocket clients...")
+        grouped = list(self.df.groupby('SessionTime'))
 
-        for timestamp, frame in grouped:
+        while True:
             if not self.connected_clients:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.5)
                 continue
 
-            records = frame.to_dict(orient='records')
-            payload = json.dumps(records, default=str)
+            for timestamp, frame in grouped:
+                if not self.connected_clients:
+                    break
 
-            # Safely send payload to all connected clients
-            websockets.broadcast(self.connected_clients, payload)
-            await asyncio.sleep(0.1)
+                records = frame.to_dict(orient='records')
+                payload = json.dumps({
+                    "type": "telemetry",
+                    "data": records
+                }, default=str)
+
+                # Send payload to all active clients
+                websockets.broadcast(self.connected_clients, payload)
+                await asyncio.sleep(0.1)

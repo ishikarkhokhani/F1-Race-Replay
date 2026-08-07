@@ -18,3 +18,10 @@ class F1DataIngester:
         laps = session.laps.pick_driver(driver_code)
         telemetry = laps.get_telemetry()
         return telemetry[['Date', 'SessionTime', 'Speed', 'RPM', 'nGear', 'Throttle', 'Brake', 'DRS', 'X', 'Y', 'Z']]
+
+    def get_circuit_layout(self, session):
+        """Extracts reference circuit layout coordinates (X, Y) from the fastest lap of the session."""
+        fastest_lap = session.laps.pick_fastest()
+        telemetry = fastest_lap.get_telemetry()
+        circuit = telemetry[['X', 'Y']].dropna()
+        return circuit.to_dict(orient='records')
