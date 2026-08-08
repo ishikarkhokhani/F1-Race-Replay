@@ -31,3 +31,25 @@ class FastF1Ingester:
         if not telemetry.empty and 'X' in telemetry.columns and 'Y' in telemetry.columns:
             telemetry = telemetry.dropna(subset=['X', 'Y'])
         return telemetry
+
+    def get_driver_list(self) -> list:
+        """Returns a list of driver abbreviations for the loaded session."""
+        if self.session is None:
+            return []
+        drivers = self.session.drivers
+        driver_abbrs = []
+        for d in drivers:
+            info = self.session.get_driver(d)
+            if 'Abbreviation' in info and info['Abbreviation']:
+                driver_abbrs.append(info['Abbreviation'])
+        return driver_abbrs
+
+    def get_multi_driver_telemetry(self, drivers: list) -> dict:
+        """Returns a dictionary of driver telemetry DataFrames from the loaded session."""
+        telemetry_dict = {}
+        for driver in drivers:
+            try:
+                telemetry_dict[driver] = self.get_driver_telemetry(driver)
+            except Exception as e:
+                print(f"[Ingester] Failed to load telemetry for {driver}: {e}")
+        return telemetry_dict

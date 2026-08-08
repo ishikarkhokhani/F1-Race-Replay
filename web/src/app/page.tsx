@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { TrackCanvas } from "@/components/TrackCanvas";
 import { TelemetryChart } from "@/components/TelemetryChart";
+import { DriverSelector } from "@/components/DriverSelector";
 
 const AVAILABLE_CIRCUITS = [
   { id: "Monza", name: "Monza (Italy)" },
@@ -21,6 +22,8 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(1);
   const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [availableDrivers, setAvailableDrivers] = useState<string[]>([]);
+  const [activeDrivers, setActiveDrivers] = useState<string[]>(["VER", "LEC", "HAM"]);
 
   const isPlayingRef = useRef(isPlaying);
   const speedRef = useRef(speedMultiplier);
@@ -39,7 +42,6 @@ export default function Home() {
     bufferLengthRef.current = telemetryBuffer.length;
   }, [telemetryBuffer.length]);
 
-  // Handle WebSocket Connection
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -59,6 +61,12 @@ export default function Home() {
           if (message.circuitName) {
             setCircuitName(message.circuitName);
           }
+          if (message.availableDrivers) {
+            setAvailableDrivers(message.availableDrivers);
+          }
+          if (message.activeDrivers) {
+            setActiveDrivers(message.activeDrivers);
+          }
         } else if (message.type === "telemetry") {
           setTelemetryBuffer((prev) => [...prev, message.data]);
         }
@@ -71,6 +79,28 @@ export default function Home() {
       ws.close();
     };
   }, []);
+
+  // Handler for toggling driver selection
+  const handleToggleDriver = (driver: string) => {
+    let updatedDrivers: string[];
+    if (activeDrivers.includes(driver)) {
+      if (activeDrivers.length === 1) return; 
+      updatedDrivers = activeDrivers.filter((d) => d !== driver);
+    } else {
+      updatedDrivers = [...activeDrivers, driver];
+    }
+
+    setActiveDrivers(updatedDrivers);
+
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: "switch_drivers",
+          drivers: updatedDrivers,
+        })
+      );
+    }
+  };
 
   // Frame Playback Loop
   useEffect(() => {
@@ -90,7 +120,6 @@ export default function Home() {
 
   const currentFrame = telemetryBuffer[currentFrameIndex] || [];
 
-  // Helper to format session time into HH:MM:SS format
   const formatSessionTime = (rawTime: string | number) => {
     if (!rawTime) return "00:00.0";
     const strTime = String(rawTime);
@@ -99,7 +128,6 @@ export default function Home() {
       : strTime.slice(0, 10);
   };
 
-  // Switch circuit handler via WebSocket
   const handleCircuitSelect = (gp: string) => {
     setSelectedGP(gp);
     setTelemetryBuffer([]);
@@ -116,7 +144,6 @@ export default function Home() {
     }
   };
 
-  // Sort drivers by cumulative Distance or spatial coordinates
   const sortedDrivers = [...currentFrame].sort((a, b) => {
     if (a.Distance !== undefined && b.Distance !== undefined) {
       return b.Distance - a.Distance;
@@ -126,7 +153,6 @@ export default function Home() {
 
   const leader = sortedDrivers[0];
 
-  // Calculate realistic time gap deltas
   const getDriverDelta = (driver: any, idx: number) => {
     if (idx === 0 || !leader) return "LEADER";
 
@@ -155,7 +181,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-zinc-100 p-8 font-sans max-w-6xl mx-auto">
       {/* Header */}
-      <header className="flex justify-between items-center border-b border-zinc-800 pb-4 mb-8 font-mono">
+      <header className="flex justify-between items-center border-b border-zinc-800 pb-4 mb-6 font-mono">
         <div>
           <h1 className="text-xl font-bold text-white tracking-tight">
             F1 Telemetry Streaming Dashboard
@@ -201,7 +227,16 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Grid Layout */}
+      {/* Driver Selector Bar */}
+      <div className="mb-6">
+        <DriverSelector
+          availableDrivers={availableDrivers}
+          activeDrivers={activeDrivers}
+          onToggleDriver={handleToggleDriver}
+        />
+      </div>
+
+      {/* Grid Layout (Track Canvas & Telemetry HUD) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Track Canvas, Timeline Scrubber, & Speed Chart (2 cols) */}
         <div className="lg:col-span-2 space-y-4">
