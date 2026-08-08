@@ -11,7 +11,6 @@ current_year = 2023
 current_gp = "Monza"
 current_drivers = ["VER", "LEC", "HAM"]
 
-# In-memory cache for loaded ingesters: key is (year, gp)
 session_cache = {}
 
 async def stream_telemetry_loop(aligned_df):
@@ -29,7 +28,7 @@ async def stream_telemetry_loop(aligned_df):
         await asyncio.sleep(0.1)
 
 async def load_and_stream_session(year: int, gp: str, drivers: list):
-    global current_stream_task, current_year, current_gp, current_drivers, session_cache
+    global current_stream_task, current_year, current_gp, current_drivers
 
     current_year = year
     current_gp = gp

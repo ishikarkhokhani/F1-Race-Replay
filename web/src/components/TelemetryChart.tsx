@@ -1,98 +1,141 @@
-"use client";
-
 import React from "react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from "recharts";
 
-interface DriverFrame {
-  Driver: string;
-  Speed: number;
-  Distance?: number;
+interface TelemetryPoint {
+  Driver?: string;
+  Speed?: number;
+  [key: string]: unknown;
 }
 
 interface TelemetryChartProps {
-  telemetryHistory: any[][];
+  telemetryHistory: TelemetryPoint[][];
 }
 
 const DRIVER_COLORS: Record<string, string> = {
-  VER: "#1e41ff",
-  LEC: "#dc0000",
-  HAM: "#00d2be",
-  NOR: "#ff8700",
+  VER: "#3671C6",
+  PER: "#3671C6",
+  LEC: "#E8002D",
+  SAI: "#E8002D",
+  HAM: "#27F4D2",
+  RUS: "#27F4D2",
+  NOR: "#FF8000",
+  PIA: "#FF8000",
+  ALO: "#229971",
+  STR: "#229971",
 };
 
 export const TelemetryChart: React.FC<TelemetryChartProps> = ({
   telemetryHistory,
 }) => {
-  const chartData = telemetryHistory.map((frame, index) => {
-    const entry: Record<string, any> = { frameIndex: index };
-    frame.forEach((driver: DriverFrame) => {
-      entry[driver.Driver] = Math.round(driver.Speed || 0);
-    });
-    return entry;
-  });
+  const chartHeight = 120;
+  const chartWidth = 600;
 
-  const drivers = Array.from(
-    new Set(
-      telemetryHistory.flatMap((frame) =>
-        frame.map((d: DriverFrame) => d.Driver)
-      )
-    )
-  );
+  if (!telemetryHistory || telemetryHistory.length === 0) {
+    return (
+      <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-500 flex items-center justify-center h-36">
+        Awaiting speed telemetry stream...
+      </div>
+    );
+  }
+
+  // Extract drivers from history
+  const driversSet = new Set<string>();
+  telemetryHistory.forEach((frame) => {
+    frame.forEach((d) => {
+      if (d.Driver) driversSet.add(d.Driver);
+    });
+  });
+  const drivers = Array.from(driversSet);
+
+  const maxSpeed = 360;
+  const totalFrames = Math.max(1, telemetryHistory.length - 1);
+
+  // Map speed to SVG Y-coordinate
+  const mapY = (speed: number) => {
+    const clampedSpeed = Math.min(maxSpeed, Math.max(0, speed));
+    return chartHeight - (clampedSpeed / maxSpeed) * chartHeight;
+  };
+
+  // Map frame index to SVG X-coordinate
+  const mapX = (index: number) => {
+    return (index / totalFrames) * chartWidth;
+  };
 
   return (
-    <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 shadow-2xl font-mono text-xs">
-      <div className="flex justify-between items-center mb-4 text-zinc-400">
-        <span>SPEED COMPARISON (KM/H)</span>
-        <div className="flex gap-4">
-          {drivers.map((driver) => (
-            <div key={driver} className="flex items-center gap-1.5">
+    <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 font-mono text-xs">
+      <div className="flex justify-between items-center mb-3">
+        <span className="text-zinc-400 font-bold uppercase tracking-wider">
+          {"// Live Speed Comparison (km/h)"}
+        </span>
+        <div className="flex gap-3 text-[10px]">
+          {drivers.map((drv) => (
+            <div key={drv} className="flex items-center gap-1.5">
               <span
-                className="w-2.5 h-2.5 rounded-full"
+                className="w-2.5 h-2.5 rounded-full inline-block"
                 style={{
-                  backgroundColor: DRIVER_COLORS[driver] || "#a1a1aa",
+                  backgroundColor: DRIVER_COLORS[drv] || "#a855f7",
                 }}
               />
-              <span className="text-zinc-200">{driver}</span>
+              <span className="text-zinc-300 font-bold">{drv}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="h-48 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-            <XAxis dataKey="frameIndex" stroke="#71717a" tick={false} />
-            <YAxis stroke="#71717a" domain={[0, 360]} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "#0d0d11",
-                borderColor: "#27272a",
-                borderRadius: "8px",
-                color: "#f4f4f5",
-              }}
-            />
-            {drivers.map((driver) => (
-              <Line
-                key={driver}
-                type="monotone"
-                dataKey={driver}
-                stroke={DRIVER_COLORS[driver] || "#a1a1aa"}
-                strokeWidth={2}
-                dot={false}
-                isAnimationActive={false}
+      <div className="relative w-full overflow-hidden bg-black/40 border border-zinc-800/60 rounded-lg p-2">
+        <svg
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          className="w-full h-28 overflow-visible"
+        >
+          {/* Grid lines */}
+          {[100, 200, 300].map((speed) => (
+            <g key={speed}>
+              <line
+                x1={0}
+                y1={mapY(speed)}
+                x2={chartWidth}
+                y2={mapY(speed)}
+                stroke="#27272a"
+                strokeDasharray="3 3"
               />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
+              <text
+                x={5}
+                y={mapY(speed) - 3}
+                fill="#52525b"
+                fontSize="8"
+                fontFamily="monospace"
+              >
+                {speed}
+              </text>
+            </g>
+          ))}
+
+          {/* Render speed trace per driver */}
+          {drivers.map((drv) => {
+            const points = telemetryHistory
+              .map((frame, idx) => {
+                const driverPoint = frame.find((d) => d.Driver === drv);
+                if (!driverPoint || driverPoint.Speed === undefined)
+                  return null;
+                return `${mapX(idx)},${mapY(driverPoint.Speed)}`;
+              })
+              .filter(Boolean)
+              .join(" ");
+
+            if (!points) return null;
+
+            return (
+              <polyline
+                key={drv}
+                fill="none"
+                stroke={DRIVER_COLORS[drv] || "#a855f7"}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                points={points}
+              />
+            );
+          })}
+        </svg>
       </div>
     </div>
   );

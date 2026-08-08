@@ -5,6 +5,24 @@ import { TrackCanvas } from "@/components/TrackCanvas";
 import { TelemetryChart } from "@/components/TelemetryChart";
 import { DriverSelector } from "@/components/DriverSelector";
 
+interface TelemetryPoint {
+  Driver?: string;
+  X?: number;
+  Y?: number;
+  Speed?: number;
+  Throttle?: number;
+  nGear?: number;
+  Distance?: number;
+  SessionTime?: string;
+  [key: string]: unknown;
+}
+
+interface CircuitPoint {
+  X: number;
+  Y: number;
+  [key: string]: unknown;
+}
+
 const AVAILABLE_CIRCUITS = [
   { id: "Monza", name: "Monza (Italy)" },
   { id: "Silverstone", name: "Silverstone (UK)" },
@@ -14,10 +32,10 @@ const AVAILABLE_CIRCUITS = [
 ];
 
 export default function Home() {
-  const [circuitLayout, setCircuitLayout] = useState<any[]>([]);
+  const [circuitLayout, setCircuitLayout] = useState<CircuitPoint[]>([]);
   const [circuitName, setCircuitName] = useState<string>("Monza GP");
   const [selectedGP, setSelectedGP] = useState<string>("Monza");
-  const [telemetryBuffer, setTelemetryBuffer] = useState<any[][]>([]);
+  const [telemetryBuffer, setTelemetryBuffer] = useState<TelemetryPoint[][]>([]);
   const [currentFrameIndex, setCurrentFrameIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(1);
@@ -153,7 +171,7 @@ export default function Home() {
 
   const leader = sortedDrivers[0];
 
-  const getDriverDelta = (driver: any, idx: number) => {
+  const getDriverDelta = (driver: TelemetryPoint, idx: number) => {
     if (idx === 0 || !leader) return "LEADER";
 
     if (
@@ -211,7 +229,7 @@ export default function Home() {
           <span className="text-zinc-400 font-mono">
             SESSION TIME:{" "}
             <span className="text-zinc-200">
-              {formatSessionTime(currentFrame[0]?.SessionTime)}
+              {formatSessionTime(currentFrame[0]?.SessionTime ?? "")}
             </span>
           </span>
 
@@ -321,7 +339,7 @@ export default function Home() {
           {/* Live Gap Deltas */}
           <div className="bg-[#121215] border border-zinc-800 rounded-xl p-5">
             <h2 className="text-zinc-400 uppercase tracking-wider mb-3">
-              // Live Gap Deltas
+              {"// Live Gap Deltas"}
             </h2>
             <div className="space-y-2">
               {sortedDrivers.map((driver, idx) => {
@@ -355,10 +373,10 @@ export default function Home() {
           {/* Telemetry Feed HUD */}
           <div className="bg-[#121215] border border-zinc-800 rounded-xl p-5">
             <h2 className="text-zinc-400 uppercase tracking-wider mb-3">
-              // Telemetry Feed
+              {"// Telemetry Feed"}
             </h2>
             <div className="space-y-3">
-              {currentFrame.map((driver: any) => (
+              {currentFrame.map((driver: TelemetryPoint) => (
                 <div
                   key={driver.Driver}
                   className="bg-zinc-900/60 border border-zinc-800 p-3 rounded-lg"
